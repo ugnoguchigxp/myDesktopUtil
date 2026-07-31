@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private let pasteService = PasteService()
   private let hotKeyManager = HotKeyManager()
   private let alarmController = AlarmController()
+  private let outlookCalendarClient = OutlookCalendarClient()
   private lazy var alertCoordinator = AlertCoordinator(alarmController: alarmController)
   private let stateStore = JSONStateStore(fileURL: AppPaths.state)
 
@@ -15,13 +16,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private var previousFrontmostApplication: NSRunningApplication?
   private var statusMessage = "起動中"
   private var alarmTimer: Timer?
-  private var graphPollTimer: Timer?
+  private var outlookPollTimer: Timer?
   private var scheduleBook = AlarmScheduleBook()
   private var state = PersistedState()
   private var connectionConfiguration = ConnectionConfiguration()
-  private var graphAuthService: GraphAuthService?
-  private var graphSyncInProgress = false
-  private var graphSyncTask: Task<Void, Never>?
+  private var outlookSyncInProgress = false
+  private var outlookSyncTask: Task<Void, Never>?
+  private var calendarPermissionDenied = false
   private var slackClient: SlackSocketClient?
   private var connectionGeneration = 0
   private var outlookStatus = "Outlook: 未設定"
@@ -45,8 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
   func applicationWillTerminate(_ notification: Notification) {
     alarmTimer?.invalidate()
-    graphPollTimer?.invalidate()
-    graphSyncTask?.cancel()
+    outlookPollTimer?.invalidate()
+    outlookSyncTask?.cancel()
     hotKeyManager.shutdown()
     if let slackClient {
       Task {
@@ -146,17 +147,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let outlook = NSMenuItem(title: outlookStatus, action: nil, keyEquivalent: "")
     outlook.isEnabled = false
     menu.addItem(outlook)
+    menu.addItem(
+      makeMenuItem("Outlookを今すぐ同期", action: #selector(syncOutlookNow))
+    )
+    if calendarPermissionDenied {
+      menu.addItem(
+        makeMenuItem(
+          "カレンダー設定を開く",
+          action: #selector(openCalendarSettings)
+        )
+      )
+    }
     let slack = NSMenuItem(title: slackStatus, action: nil, keyEquivalent: "")
     slack.isEnabled = false
     menu.addItem(slack)
     menu.addItem(
       makeMenuItem("接続設定ファイルを開く", action: #selector(openConnections))
     )
-    if connectionConfiguration.microsoft?.clientID.isEmpty == false {
-      menu.addItem(
-        makeMenuItem("Outlookにサインイン", action: #selector(signInToOutlook))
-      )
-    }
     menu.addItem(
       makeMenuItem("接続設定を再読み込み", action: #selector(reloadConnections))
     )
@@ -278,40 +285,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   }
 
   @objc
+  private func openCalendarSettings() {
+    guard
+      let url = URL(
+        string:
+          "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+      )
+    else {
+      return
+    }
+    NSWorkspace.shared.open(url)
+  }
+
+  @objc
   private func reloadConnections() {
     configureConnections()
   }
 
   @objc
-  private func signInToOutlook() {
-    guard let graphAuthService else {
-      outlookStatus = "Outlook: Client ID未設定"
-      rebuildMenu()
-      return
-    }
-    outlookStatus = "Outlook: サインイン中"
-    rebuildMenu()
-    let generation = connectionGeneration
-    Task { [weak self] in
-      guard let self else {
-        return
-      }
-      do {
-        _ = try await graphAuthService.signIn()
-        guard generation == connectionGeneration else {
-          return
-        }
-        outlookStatus = "Outlook: サインイン済み"
-        synchronizeGraph(forceFull: true)
-      } catch {
-        guard generation == connectionGeneration else {
-          return
-        }
-        outlookStatus = "Outlook: サインイン失敗"
-        statusMessage = error.localizedDescription
-        rebuildMenu()
-      }
-    }
+  private func syncOutlookNow() {
+    synchronizeOutlook()
   }
 
   @objc
@@ -371,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   @objc
   private func didWake() {
     fireDueAlerts(afterWake: true)
-    synchronizeGraph()
+    synchronizeOutlook()
   }
 
   @objc
@@ -423,11 +416,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
   private func configureConnections() {
     connectionGeneration &+= 1
-    graphSyncTask?.cancel()
-    graphSyncTask = nil
-    graphSyncInProgress = false
-    graphPollTimer?.invalidate()
-    graphPollTimer = nil
+    outlookSyncTask?.cancel()
+    outlookSyncTask = nil
+    outlookSyncInProgress = false
+    outlookPollTimer?.invalidate()
+    outlookPollTimer = nil
     if let slackClient {
       Task {
         await slackClient.stop()
@@ -436,89 +429,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     slackClient = nil
 
     connectionConfiguration = ConnectionConfiguration.loadOrCreate()
-    configureGraph()
+    configureOutlook()
     configureSlack()
     rebuildMenu()
   }
 
-  private func configureGraph() {
-    guard let microsoft = connectionConfiguration.microsoft,
-      !microsoft.clientID.isEmpty
-    else {
-      graphAuthService = nil
-      outlookStatus = "Outlook: Client ID未設定"
-      return
-    }
-
-    graphAuthService = GraphAuthService(configuration: microsoft)
+  private func configureOutlook() {
     outlookStatus = "Outlook: 接続確認中"
     let timer = Timer(
-      timeInterval: TimeInterval(connectionConfiguration.graphPollSeconds),
+      timeInterval: TimeInterval(connectionConfiguration.outlookPollSeconds),
       target: self,
-      selector: #selector(graphPollTimerFired),
+      selector: #selector(outlookPollTimerFired),
       userInfo: nil,
       repeats: true
     )
     timer.tolerance = 10
     RunLoop.main.add(timer, forMode: .common)
-    graphPollTimer = timer
-    synchronizeGraph()
+    outlookPollTimer = timer
+    synchronizeOutlook()
   }
 
   @objc
-  private func graphPollTimerFired() {
-    synchronizeGraph()
+  private func outlookPollTimerFired() {
+    synchronizeOutlook()
   }
 
-  private func synchronizeGraph(forceFull: Bool = false) {
-    guard !graphSyncInProgress, let graphAuthService else {
+  private func synchronizeOutlook() {
+    guard !outlookSyncInProgress else {
       return
     }
-    graphSyncInProgress = true
+    outlookSyncInProgress = true
     outlookStatus = "Outlook: 同期中"
     rebuildMenu()
 
-    let savedState = state
     let generation = connectionGeneration
-    graphSyncTask = Task { [weak self] in
+    outlookSyncTask = Task { [weak self] in
       guard let self else {
         return
       }
       defer {
         if generation == connectionGeneration {
-          graphSyncInProgress = false
-          graphSyncTask = nil
+          outlookSyncInProgress = false
+          outlookSyncTask = nil
           rebuildMenu()
         }
       }
       do {
-        var token = try await graphAuthService.validAccessToken()
-        let result: GraphSyncResult
-        do {
-          result = try await requestGraphSync(
-            accessToken: token,
-            savedState: savedState,
-            forceFull: forceFull
-          )
-        } catch GraphIntegrationError.httpStatus(401) {
-          try graphAuthService.invalidateAccessToken()
-          token = try await graphAuthService.validAccessToken()
-          result = try await requestGraphSync(
-            accessToken: token,
-            savedState: savedState,
-            forceFull: forceFull
-          )
-        }
+        let events = try await outlookCalendarClient.fetchEvents()
         guard !Task.isCancelled, generation == connectionGeneration else {
           return
         }
-        applyGraphSyncResult(result)
+        calendarPermissionDenied = false
+        state.lastSuccessfulSync = Date()
+        applyCalendarEvents(events)
         outlookStatus = "Outlook: 接続済み"
-      } catch GraphIntegrationError.signInFailed {
+        statusMessage = "Outlookの予定を\(events.count)件同期しました"
+      } catch OutlookIntegrationError.noExchangeCalendars {
         guard !Task.isCancelled, generation == connectionGeneration else {
           return
         }
-        outlookStatus = "Outlook: サインインが必要"
+        calendarPermissionDenied = false
+        outlookStatus = "Outlook: Exchangeカレンダーなし"
+        statusMessage = "システム設定でExchangeのカレンダー同期を有効にしてください"
+      } catch OutlookIntegrationError.permissionDenied {
+        guard !Task.isCancelled, generation == connectionGeneration else {
+          return
+        }
+        calendarPermissionDenied = true
+        outlookStatus = "Outlook: カレンダー権限が必要"
+        statusMessage = "カレンダー設定でDesk Agentのフルアクセスを許可してください"
       } catch {
         guard !Task.isCancelled, generation == connectionGeneration else {
           return
@@ -527,62 +506,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusMessage = error.localizedDescription
       }
     }
-  }
-
-  private func requestGraphSync(
-    accessToken: String,
-    savedState: PersistedState,
-    forceFull: Bool
-  ) async throws -> GraphSyncResult {
-    do {
-      return try await GraphClient().synchronize(
-        accessToken: accessToken,
-        savedDeltaLink: savedState.graphDeltaLink,
-        savedWindowStart: savedState.graphWindowStart,
-        savedWindowEnd: savedState.graphWindowEnd,
-        forceFullSync: forceFull
-      )
-    } catch GraphIntegrationError.deltaExpired {
-      return try await GraphClient().synchronize(
-        accessToken: accessToken,
-        savedDeltaLink: nil,
-        savedWindowStart: nil,
-        savedWindowEnd: nil,
-        forceFullSync: true
-      )
-    }
-  }
-
-  private func applyGraphSyncResult(_ result: GraphSyncResult) {
-    var eventsByID: [String: OutlookEvent] = [:]
-    if !result.isFullSync {
-      for event in state.calendarEvents {
-        eventsByID[event.id] = event
-      }
-    }
-
-    for eventID in result.removedEventIDs {
-      eventsByID.removeValue(forKey: eventID)
-    }
-    for event in result.events {
-      if event.isAlarmEligible {
-        eventsByID[event.id] = event
-      } else {
-        eventsByID.removeValue(forKey: event.id)
-      }
-    }
-
-    state.calendarEvents = Array(
-      eventsByID.values
-        .sorted { ($0.startAt ?? .distantFuture) < ($1.startAt ?? .distantFuture) }
-        .prefix(DeskLimits.maxCalendarEvents)
-    )
-    state.graphDeltaLink = result.deltaLink
-    state.graphWindowStart = result.windowStart
-    state.graphWindowEnd = result.windowEnd
-    state.lastSuccessfulSync = Date()
-    scheduleBook.applySnapshot(state.calendarEvents)
-    fireDueAlerts(afterWake: false)
   }
 
   private func configureSlack() {
@@ -686,8 +609,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
           contentsOf: URL(fileURLWithPath: path),
           options: [.mappedIfSafe]
         )
-        let page = try GraphDeltaDecoder.decode(data)
-        applyCalendarEvents(page.events)
+        guard data.count <= DeskLimits.maxPersistedStateBytes else {
+          throw ProviderParseError.payloadTooLarge
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let events = try decoder.decode([OutlookEvent].self, from: data)
+        applyCalendarEvents(events)
         statusMessage = "Outlook fixtureを読み込みました"
       } catch {
         statusMessage = "Outlook fixture: \(error.localizedDescription)"

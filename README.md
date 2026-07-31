@@ -55,7 +55,7 @@ JSON fixtureを読み込むこともできます。
 
 ```bash
 ./scripts/run-app.sh --slack-fixture "$PWD/Fixtures/slack-dm.json"
-./scripts/run-app.sh --outlook-fixture "$PWD/Fixtures/outlook-delta.json"
+./scripts/run-app.sh --outlook-fixture "$PWD/Fixtures/outlook-events.json"
 ```
 
 ## 保存場所
@@ -91,32 +91,30 @@ JSON fixtureを読み込むこともできます。
 
 Clipboardは最大128項目・512 representation・合計4MiB以内の場合だけ一時保存します。安全に保存できない大きな画像や特殊な遅延データが入っている場合、Clipboardを破壊せず貼り付けを中止します。貼り付け中にユーザーが新しくコピーした場合も復元しません。同時に複数の定型文を呼び出した場合は、元のClipboardを守るため後続の貼り付けを拒否します。
 
-## Microsoft Graph
+## Outlook
 
-Microsoft EntraでPublic client/native appを作成し、次を設定します。
+macOSのカレンダーへ同期されたExchange予定をEventKitから読み取ります。Microsoft Entraのアプリ登録、Client ID、Microsoft Graphの権限は不要です。
 
-- Redirect URI: `com.local.deskagent://oauth/callback`
-- Delegated permissions: `Calendars.Read`, `User.Read`
-- Public client flowを許可
+1. 「システム設定 > インターネットアカウント」でExchangeアカウントを追加
+2. そのアカウントの「カレンダー」を有効化
+3. Desk Agentを起動し、カレンダーへのフルアクセスを許可
 
-`connections.json`へClient IDとtenant IDを設定します。
+権限を拒否した場合は、Desk Agentメニューの「カレンダー設定を開く」から許可できます。Outlookアプリ自体は起動していなくても同期できます。
+
+同期間隔は`connections.json`で設定できます。
 
 ```json
 {
-  "graphPollSeconds": 180,
-  "microsoft": {
-    "clientID": "YOUR-CLIENT-ID",
-    "tenantID": "common"
-  },
+  "outlookPollSeconds": 180,
   "slack": {
     "selfUserID": ""
   }
 }
 ```
 
-メニューバーの「接続設定を再読み込み」、続けて「Outlookにサインイン」を選択します。Authorization Code + PKCEを使用し、access tokenとrefresh tokenはKeychainへ保存します。
+旧設定の`graphPollSeconds`も互換性のため読み取ります。`microsoft`ブロックは使用されないため削除できます。設定変更後はメニューバーの「接続設定を再読み込み」を選択してください。
 
-Graphの`calendarView/delta`は期間がtokenに固定されるため、12時間ごとに過去1時間から今後14日までの新しい窓でフル同期します。通常は3分ごとの差分同期で、スリープ復帰時にも即時同期します。Bearer tokenを送信する接続先はHTTPSの`graph.microsoft.com`だけに制限しています。
+通常は3分ごと、スリープ復帰時は即時に予定を再取得します。カレンダー権限が未許可、Exchangeカレンダーが未設定、または取得に失敗した場合は、既に読み込んだ予定とアラームを削除せず次回同期まで保持します。終日予定、キャンセル済み予定、辞退済み予定はアラーム対象外です。
 
 ## Slack Socket Mode
 
@@ -163,5 +161,6 @@ Release版を起動し、初回同期後に5分待ってから実行します。
 
 - ロック画面、パスワード入力などのsecure system UIより前面に表示することはできません。
 - アラームカードはマウスポインタがあるディスプレイの中央上部に表示します。
+- 会社の端末管理ポリシーでmacOS標準カレンダーへのExchange同期が禁止されている場合、Outlook予定は取得できません。
 - Slackの個人向けevent購読はWorkspace管理者の承認やポリシーにより利用できない場合があります。
 - このMacではローカル自己署名を使用します。他のMacへ配布する場合はDeveloper ID署名とnotarizationが必要です。

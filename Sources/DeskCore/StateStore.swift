@@ -1,26 +1,17 @@
 import Foundation
 
 public struct PersistedState: Codable, Equatable, Sendable {
-  public var graphDeltaLink: String?
-  public var graphWindowStart: Date?
-  public var graphWindowEnd: Date?
   public var calendarEvents: [OutlookEvent]
   public var recentSlackEventIDs: [String]
   public var notifiedEventIDs: [String]
   public var lastSuccessfulSync: Date?
 
   public init(
-    graphDeltaLink: String? = nil,
-    graphWindowStart: Date? = nil,
-    graphWindowEnd: Date? = nil,
     calendarEvents: [OutlookEvent] = [],
     recentSlackEventIDs: [String] = [],
     notifiedEventIDs: [String] = [],
     lastSuccessfulSync: Date? = nil
   ) {
-    self.graphDeltaLink = graphDeltaLink
-    self.graphWindowStart = graphWindowStart
-    self.graphWindowEnd = graphWindowEnd
     self.calendarEvents = calendarEvents
     self.recentSlackEventIDs = recentSlackEventIDs
     self.notifiedEventIDs = notifiedEventIDs
@@ -73,17 +64,6 @@ public struct PersistedState: Codable, Equatable, Sendable {
           )
         }
       ).allValues
-    var hasValidGraphDeltaState = false
-    if let graphDeltaLink, let graphWindowStart, let graphWindowEnd {
-      hasValidGraphDeltaState =
-        graphWindowEnd > graphWindowStart
-        && URL(string: graphDeltaLink).map(GraphEndpointPolicy.isAllowed) == true
-    }
-    if !hasValidGraphDeltaState {
-      graphDeltaLink = nil
-      graphWindowStart = nil
-      graphWindowEnd = nil
-    }
   }
 }
 

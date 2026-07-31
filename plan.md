@@ -310,33 +310,26 @@ paste_snippet(snippet_id: &str) -> Result<PasteOutcome>
 Accessibility: Permission Required
 ```
 
-ログには定型文本文、Slack本文、OAuth token、refresh tokenを出力しないでください。
+ログには定型文本文、Slack本文、Outlook予定の件名、認証tokenを出力しないでください。
 
 # Outlook連携
 
-Microsoft Graphの`calendarView/delta`を利用してください。
+macOSのカレンダーへ同期されたExchange予定をEventKitで取得してください。
 
-* 公開Webhookサーバーは作らない
-* 初回は対象期間を同期
-* 以後は`@odata.deltaLink`で差分同期
+* Microsoft Entraのアプリ登録やMicrosoft Graphの権限を要求しない
+* システム設定のインターネットアカウントでExchangeカレンダー同期を利用する
+* 初回にmacOSのカレンダー読取権限を要求する
+* カレンダー権限が拒否された場合は設定画面へ誘導する
+* 同期ごとに対象期間のスナップショットを取得する
 * 対象範囲は過去1時間から今後14日
 * 同期間隔は通常2～5分
 * ローカルでは次回アラーム時刻を保持して待機
 * スリープ復帰時には即時再同期
-* 認証切れ時にはrefresh tokenを使用
-* 認証情報はmacOS Keychainへ保存
-* 設定ファイルへtokenを平文保存しない
+* 権限拒否、Exchangeカレンダー未設定、取得失敗時は既存の予定とアラームを保持する
+* 件名、開始時刻、終日フラグ、キャンセル状態、参加状態、カレンダー項目IDだけを取得する
+* 取得した予定の件名をログへ出力しない
 
-権限は予定読み取りに必要な最小限としてください。
-
-Microsoft EntraのClient IDが未設定の場合も、アプリの定型文機能とアラームテストは動作させてください。
-
-Graphクライアントはtraitで抽象化し、fixtureまたはfake clientによるテストを可能にしてください。
-
-参考：
-
-* Microsoft Graph calendarView delta:
-  [https://learn.microsoft.com/en-us/graph/api/event-delta](https://learn.microsoft.com/en-us/graph/api/event-delta)
+EventKitオブジェクトからアプリ内予定への変換処理は、外部ネットワークなしでテスト可能にしてください。
 
 # Slack連携
 
@@ -371,7 +364,6 @@ Slackの権限やEvent SubscriptionはREADMEとmanifest sampleへ明記してく
 
 保存対象：
 
-* Graph deltaLink
 * 今後14日分の必要最小限の予定
 * recent Slack event IDs
 * 通知済みID
@@ -476,7 +468,7 @@ cargo build --workspace --release
 6. NSStatusItem＋NSMenu
 7. Accessibility権限確認
 8. mock Outlook／mock Slackからアラームまでの縦切り動作
-9. Microsoft Graph連携
+9. macOS EventKitによるExchange予定連携
 10. Slack Socket Mode連携
 11. Login Itemと.app bundle作成
 12. テスト、README、メモリ計測

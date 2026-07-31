@@ -1,0 +1,10 @@
+[
+  {
+    "id": "fixture-outlook-event",
+    "title": "Fixture Meeting",
+    "startAt": "2033-05-18T03:33:20Z",
+    "isCancelled": false,
+    "isAllDay": false,
+    "response": "accepted"
+  }
+]

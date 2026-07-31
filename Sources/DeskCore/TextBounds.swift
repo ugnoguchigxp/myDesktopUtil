@@ -1,7 +1,7 @@
 import Foundation
 
-enum TextBounds {
-  static func utf8Prefix(_ source: String, maxBytes: Int) -> String {
+public enum TextBounds {
+  public static func utf8Prefix(_ source: String, maxBytes: Int) -> String {
     guard maxBytes > 0 else {
       return ""
     }

@@ -21,9 +21,9 @@ let package = Package(
       linkerSettings: [
         .linkedFramework("AppKit"),
         .linkedFramework("ApplicationServices"),
-        .linkedFramework("AuthenticationServices"),
         .linkedFramework("Carbon"),
         .linkedFramework("CoreGraphics"),
+        .linkedFramework("EventKit"),
         .linkedFramework("Security"),
         .linkedFramework("ServiceManagement"),
       ]
@@ -31,6 +31,10 @@ let package = Package(
     .testTarget(
       name: "DeskCoreTests",
       dependencies: ["DeskCore"]
+    ),
+    .testTarget(
+      name: "DeskAgentTests",
+      dependencies: ["DeskAgent", "DeskCore"]
     ),
   ]
 )

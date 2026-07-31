@@ -18,9 +18,7 @@ public enum DeskLimits {
   public static let maxProviderIdentifierBytes = 512
   public static let maxProviderUserIDBytes = 256
   public static let maxProviderURLBytes = 16 * 1_024
-  public static let maxOAuthAuthorizationCodeBytes = 8 * 1_024
   public static let maxCalendarEvents = 1_024
-  public static let maxGraphChangesPerSync = 2_048
   public static let maxPersistedStateBytes = 4 * 1_024 * 1_024
 }
 
@@ -59,23 +57,6 @@ public enum OutlookResponse: String, Codable, Sendable {
   case accepted
   case declined
   case notResponded
-
-  public init(graphValue: String?) {
-    switch graphValue?.lowercased() {
-    case "organizer":
-      self = .organizer
-    case "tentativelyaccepted":
-      self = .tentativelyAccepted
-    case "accepted":
-      self = .accepted
-    case "declined":
-      self = .declined
-    case "notresponded":
-      self = .notResponded
-    default:
-      self = .none
-    }
-  }
 }
 
 public struct OutlookEvent: Codable, Equatable, Sendable {

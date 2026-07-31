@@ -77,9 +77,6 @@ final class BoundedStateTests: XCTestCase {
     let store = JSONStateStore(fileURL: directory.appendingPathComponent("state.json"))
     let date = Date(timeIntervalSince1970: 2_000_000_000)
     let state = PersistedState(
-      graphDeltaLink: "https://graph.microsoft.com/delta",
-      graphWindowStart: date,
-      graphWindowEnd: date.addingTimeInterval(3_600),
       calendarEvents: [
         OutlookEvent(id: "event", title: "Meeting", startAt: date)
       ],
@@ -89,8 +86,6 @@ final class BoundedStateTests: XCTestCase {
     try store.save(state)
     let loaded = try store.loadExistingFile()
 
-    XCTAssertEqual(loaded.graphWindowStart, date)
-    XCTAssertEqual(loaded.graphDeltaLink, "https://graph.microsoft.com/delta")
     XCTAssertEqual(loaded.calendarEvents.first?.id, "event")
     XCTAssertEqual(loaded.recentSlackEventIDs.count, DeskLimits.maxRecentSlackEventIDs)
     XCTAssertEqual(loaded.recentSlackEventIDs.last, "event-600")
@@ -116,10 +111,6 @@ final class BoundedStateTests: XCTestCase {
     )
     let oversizedTitle = "a" + String(repeating: "\u{0301}", count: 2_000)
     let state = PersistedState(
-      graphDeltaLink: String(
-        repeating: "x",
-        count: DeskLimits.maxProviderURLBytes + 1
-      ),
       calendarEvents: [
         OutlookEvent(id: oversizedID, title: "Dropped", startAt: Date()),
         OutlookEvent(id: "kept", title: oversizedTitle, startAt: Date()),
@@ -127,7 +118,6 @@ final class BoundedStateTests: XCTestCase {
       recentSlackEventIDs: [oversizedID]
     )
 
-    XCTAssertNil(state.graphDeltaLink)
     XCTAssertEqual(state.calendarEvents.map(\.id), ["kept"])
     XCTAssertLessThanOrEqual(
       state.calendarEvents[0].title.utf8.count,
@@ -148,26 +138,6 @@ final class BoundedStateTests: XCTestCase {
     XCTAssertTrue(state.calendarEvents.isEmpty)
     XCTAssertEqual(state.recentSlackEventIDs, ["old", "new"])
     XCTAssertEqual(state.notifiedEventIDs, ["first", "second"])
-  }
-
-  func testPersistedStateDropsUntrustedOrIncompleteGraphDeltaState() {
-    let now = Date()
-    let untrusted = PersistedState(
-      graphDeltaLink: "https://example.com/steal",
-      graphWindowStart: now,
-      graphWindowEnd: now.addingTimeInterval(3_600)
-    )
-    let incomplete = PersistedState(
-      graphDeltaLink: "https://graph.microsoft.com/delta",
-      graphWindowStart: now
-    )
-
-    XCTAssertNil(untrusted.graphDeltaLink)
-    XCTAssertNil(untrusted.graphWindowStart)
-    XCTAssertNil(untrusted.graphWindowEnd)
-    XCTAssertNil(incomplete.graphDeltaLink)
-    XCTAssertNil(incomplete.graphWindowStart)
-    XCTAssertNil(incomplete.graphWindowEnd)
   }
 
   func testStateStoreDoesNotWriteAFileItCannotLoad() throws {

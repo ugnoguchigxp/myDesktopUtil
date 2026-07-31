@@ -20,9 +20,6 @@ struct KeychainStore: Sendable {
   }
 
   enum Account: String, CaseIterable, Sendable {
-    case graphAccessToken = "graph-access-token"
-    case graphRefreshToken = "graph-refresh-token"
-    case graphTokenExpiry = "graph-token-expiry"
     case slackAppToken = "slack-app-token"
     case slackUserToken = "slack-user-token"
   }

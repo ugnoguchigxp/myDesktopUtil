@@ -1,16 +1,6 @@
 import Foundation
 
 struct ConnectionConfiguration: Codable, Sendable {
-  struct Microsoft: Codable, Sendable {
-    var clientID: String
-    var tenantID: String
-
-    init(clientID: String = "", tenantID: String = "common") {
-      self.clientID = clientID
-      self.tenantID = tenantID
-    }
-  }
-
   struct Slack: Codable, Sendable {
     var selfUserID: String
 
@@ -19,18 +9,41 @@ struct ConnectionConfiguration: Codable, Sendable {
     }
   }
 
-  var microsoft: Microsoft?
   var slack: Slack?
-  var graphPollSeconds: Int
+  var outlookPollSeconds: Int
 
   init(
-    microsoft: Microsoft? = Microsoft(),
     slack: Slack? = Slack(),
-    graphPollSeconds: Int = 180
+    outlookPollSeconds: Int = 180
   ) {
-    self.microsoft = microsoft
     self.slack = slack
-    self.graphPollSeconds = graphPollSeconds
+    self.outlookPollSeconds = outlookPollSeconds
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case slack
+    case outlookPollSeconds
+    case legacyGraphPollSeconds = "graphPollSeconds"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    slack = try container.decodeIfPresent(Slack.self, forKey: .slack) ?? Slack()
+    let configuredPollSeconds = try container.decodeIfPresent(
+      Int.self,
+      forKey: .outlookPollSeconds
+    )
+    let legacyPollSeconds = try container.decodeIfPresent(
+      Int.self,
+      forKey: .legacyGraphPollSeconds
+    )
+    outlookPollSeconds = configuredPollSeconds ?? legacyPollSeconds ?? 180
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encodeIfPresent(slack, forKey: .slack)
+    try container.encode(outlookPollSeconds, forKey: .outlookPollSeconds)
   }
 
   static func loadOrCreate() -> ConnectionConfiguration {
@@ -61,29 +74,7 @@ struct ConnectionConfiguration: Codable, Sendable {
   }
 
   private mutating func sanitize() {
-    graphPollSeconds = min(1_800, max(60, graphPollSeconds))
-
-    if var microsoft {
-      microsoft.clientID = microsoft.clientID.trimmingCharacters(
-        in: .whitespacesAndNewlines
-      )
-      if microsoft.clientID.count > 256
-        || !Self.containsOnlyIdentifierCharacters(microsoft.clientID)
-      {
-        microsoft.clientID = ""
-      }
-
-      microsoft.tenantID = microsoft.tenantID.trimmingCharacters(
-        in: .whitespacesAndNewlines
-      )
-      if microsoft.tenantID.isEmpty
-        || microsoft.tenantID.count > 255
-        || !Self.containsOnlyIdentifierCharacters(microsoft.tenantID)
-      {
-        microsoft.tenantID = "common"
-      }
-      self.microsoft = microsoft
-    }
+    outlookPollSeconds = min(1_800, max(60, outlookPollSeconds))
 
     if var slack {
       slack.selfUserID = slack.selfUserID.trimmingCharacters(

@@ -1,0 +1,14 @@
+{
+  "envelope_id": "fixture-envelope-dm",
+  "type": "events_api",
+  "payload": {
+    "event_id": "fixture-event-dm",
+    "event": {
+      "type": "message",
+      "channel": "D0123456789",
+      "channel_type": "im",
+      "user": "U_OTHER",
+      "text": "確認をお願いします"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "envelope_id": "fixture-envelope-mention",
+  "type": "events_api",
+  "payload": {
+    "event_id": "fixture-event-mention",
+    "event": {
+      "type": "message",
+      "channel": "C0123456789",
+      "channel_type": "channel",
+      "user": "U_OTHER",
+      "text": "<@U_SELF> 対応をお願いします"
+    }
+  }
+}

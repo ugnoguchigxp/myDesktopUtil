@@ -1,0 +1,26 @@
+_metadata:
+  major_version: 1
+
+display_information:
+  name: Desk Agent
+  description: Personal high-visibility alerts for direct messages and mentions
+  background_color: "#2b0508"
+
+oauth_config:
+  scopes:
+    user:
+      - channels:history
+      - groups:history
+      - im:history
+      - mpim:history
+
+settings:
+  event_subscriptions:
+    user_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

@@ -1,5 +1,4 @@
 import AppKit
-import Darwin
 
 @MainActor
 func runApplication() {
@@ -12,7 +11,4 @@ func runApplication() {
   }
 }
 
-if let exitCode = CommandLineMode.exitCodeIfRequested() {
-  exit(exitCode)
-}
 runApplication()

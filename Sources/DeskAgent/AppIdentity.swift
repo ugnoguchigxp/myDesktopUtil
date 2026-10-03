@@ -3,7 +3,6 @@ import Foundation
 enum AppIdentity {
   static let name = "Desk Agent"
   static let bundleIdentifier = "com.local.deskagent"
-  static let keychainService = bundleIdentifier
   static let pasteboardMarkerType = "\(bundleIdentifier).paste-marker"
 }
 
@@ -26,13 +25,5 @@ enum AppPaths {
 
   static var snippets: URL {
     applicationSupport.appendingPathComponent("snippets.toml")
-  }
-
-  static var state: URL {
-    applicationSupport.appendingPathComponent("state.json")
-  }
-
-  static var connections: URL {
-    applicationSupport.appendingPathComponent("connections.json")
   }
 }

@@ -69,9 +69,25 @@ public struct HotKey: Codable, Equatable, Hashable, Sendable, CustomStringConver
     var values = Set((0...9).map(String.init))
     values.formUnion((65...90).compactMap { UnicodeScalar($0).map(String.init) })
     values.formUnion((1...20).map { "F\($0)" })
-    values.formUnion(["SPACE", "RETURN", "TAB", "ESCAPE", "LEFT", "RIGHT", "UP", "DOWN"])
+    values.formUnion([
+      "SPACE", "RETURN", "TAB", "ESCAPE", "LEFT", "RIGHT", "UP", "DOWN",
+      "DELETE", "FORWARDDELETE", "HOME", "END", "PAGEUP", "PAGEDOWN",
+      "-", "=", "[", "]", ";", "'", "\\", ",", ".", "/", "`",
+    ])
     return values
   }()
+}
+
+public enum PasteMode: String, Codable, CaseIterable, Sendable {
+  case paste
+  case copy
+
+  public var title: String {
+    switch self {
+    case .paste: "すぐ貼り付ける"
+    case .copy: "コピーだけする"
+    }
+  }
 }
 
 public struct Snippet: Codable, Equatable, Sendable {
@@ -79,12 +95,16 @@ public struct Snippet: Codable, Equatable, Sendable {
   public let label: String
   public let hotKey: HotKey?
   public let text: String
+  public let pasteMode: PasteMode
 
-  public init(id: String, label: String, hotKey: HotKey?, text: String) {
+  public init(
+    id: String, label: String, hotKey: HotKey?, text: String, pasteMode: PasteMode = .paste
+  ) {
     self.id = id
     self.label = label
     self.hotKey = hotKey
     self.text = text
+    self.pasteMode = pasteMode
   }
 }
 
@@ -96,9 +116,10 @@ public enum SnippetError: Error, Equatable, LocalizedError, Sendable {
   case duplicateHotKey(String)
   case invalidID(String)
   case invalidHotKey(String)
+  case reservedHotKey(String)
+  case invalidPasteMode(String)
   case labelTooLarge(String)
   case emptyText(String)
-  case tooManySnippets(Int)
   case snippetTooLarge(String)
   case totalTextTooLarge
 
@@ -118,12 +139,14 @@ public enum SnippetError: Error, Equatable, LocalizedError, Sendable {
       "定型文IDが不正です: \(id)"
     case .invalidHotKey(let hotKey):
       "ショートカットが不正です: \(hotKey)"
+    case .reservedHotKey(let hotKey):
+      "\(hotKey) は定型文一覧を開くために使われています"
+    case .invalidPasteMode(let mode):
+      "実行方法が不正です: \(mode)"
     case .labelTooLarge(let id):
       "定型文の表示名が長すぎます: \(id)"
     case .emptyText(let id):
       "定型文が空です: \(id)"
-    case .tooManySnippets(let count):
-      "定型文が多すぎます: \(count)件"
     case .snippetTooLarge(let id):
       "定型文が大きすぎます: \(id)"
     case .totalTextTooLarge:
@@ -133,7 +156,56 @@ public enum SnippetError: Error, Equatable, LocalizedError, Sendable {
 }
 
 public enum SnippetsTOML {
-  private static let allowedFields: Set<String> = ["id", "label", "hotkey", "text"]
+  private static let allowedFields: Set<String> = ["id", "label", "hotkey", "text", "mode"]
+
+  /// Encode single-line TOML strings so every blank line and literal delimiter survives editing.
+  public static func serialize(_ snippets: [Snippet]) throws -> String {
+    let source = snippets.map { snippet in
+      var lines = [
+        "[[snippets]]",
+        "id = \(quoted(snippet.id))",
+        "label = \(quoted(snippet.label))",
+      ]
+      if let hotKey = snippet.hotKey {
+        lines.append("hotkey = \(quoted(hotKey.description))")
+      }
+      if snippet.pasteMode != .paste {
+        lines.append("mode = \(quoted(snippet.pasteMode.rawValue))")
+      }
+      lines.append("text = \(quoted(snippet.text))")
+      return lines.joined(separator: "\n")
+    }.joined(separator: "\n\n") + "\n"
+    _ = try parse(source)
+    return source
+  }
+
+  private static func quoted(_ value: String) -> String {
+    let escaped = value
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "\"", with: "\\\"")
+      .replacingOccurrences(of: "\n", with: "\\n")
+      .replacingOccurrences(of: "\r", with: "\\r")
+      .replacingOccurrences(of: "\t", with: "\\t")
+    return "\"\(escaped)\""
+  }
+
+  /// Add only missing defaults, leaving custom IDs, shortcuts and source formatting intact.
+  public static func addingMissingDefaults(to source: String) throws -> String {
+    let existing = try parse(source)
+    let defaults = try parse(sample())
+    let ids = Set(existing.map(\.id))
+    let hotKeys = Set(existing.compactMap(\.hotKey))
+    let missing = defaults.filter {
+      !ids.contains($0.id) && ($0.hotKey.map { !hotKeys.contains($0) } ?? true)
+    }
+    guard !missing.isEmpty else { return source }
+    guard (existing + missing).reduce(0, { $0 + $1.text.utf8.count }) <= DeskLimits.maxTotalSnippetBytes else {
+      return source
+    }
+    let expanded = source + "\n\n# 追加の定型文（設定画面から変更できます）\n" + (try serialize(missing))
+    _ = try parse(expanded)
+    return expanded
+  }
 
   public static func parse(_ source: String) throws -> [Snippet] {
     let lines = source.components(separatedBy: .newlines)
@@ -260,14 +332,34 @@ public enum SnippetsTOML {
     この問題の原因を調査してください。
     まだ修正は行わず、再現条件、根本原因、影響範囲を報告してください。
     \"\"\"
+
+    [[snippets]]
+    id = "codex-implement"
+    label = "Codex: 実装"
+    hotkey = "Cmd+Option+3"
+    text = "この内容を実装してください。既存の設計と書き方に合わせ、動作確認まで行ってください。"
+
+    [[snippets]]
+    id = "codex-test"
+    label = "Codex: テスト"
+    hotkey = "Cmd+Option+4"
+    text = "変更内容に必要なテストを追加し、実行してください。失敗した場合は原因を調べて修正してください。"
+
+    [[snippets]]
+    id = "codex-explain"
+    label = "Codex: 説明"
+    hotkey = "Cmd+Option+5"
+    text = "この内容をわかりやすく説明してください。要点と具体例を簡潔にまとめてください。"
+
+    [[snippets]]
+    id = "rewrite"
+    label = "文章の推敲"
+    hotkey = "Cmd+Option+6"
+    text = "この文章を、意味を変えずに自然で読みやすい日本語に整えてください。"
     """
   }
 
   private static func validate(_ records: [[String: String]]) throws -> [Snippet] {
-    guard records.count <= DeskLimits.maxSnippets else {
-      throw SnippetError.tooManySnippets(records.count)
-    }
-
     var ids: Set<String> = []
     var hotKeys: Set<HotKey> = []
     var totalBytes = 0
@@ -315,6 +407,9 @@ public enum SnippetsTOML {
       let hotKey: HotKey?
       if let value = record["hotkey"], !value.isEmpty {
         let parsedHotKey = try HotKey.parse(value)
+        guard parsedHotKey != HotKey(modifiers: [.command, .option], key: "P") else {
+          throw SnippetError.reservedHotKey(parsedHotKey.description)
+        }
         guard hotKeys.insert(parsedHotKey).inserted else {
           throw SnippetError.duplicateHotKey(parsedHotKey.description)
         }
@@ -322,7 +417,11 @@ public enum SnippetsTOML {
       } else {
         hotKey = nil
       }
-      return Snippet(id: id, label: label, hotKey: hotKey, text: text)
+      let modeValue = record["mode"] ?? PasteMode.paste.rawValue
+      guard let mode = PasteMode(rawValue: modeValue) else {
+        throw SnippetError.invalidPasteMode(modeValue)
+      }
+      return Snippet(id: id, label: label, hotKey: hotKey, text: text, pasteMode: mode)
     }
   }
 

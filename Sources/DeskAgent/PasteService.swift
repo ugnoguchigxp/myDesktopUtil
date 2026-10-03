@@ -49,11 +49,26 @@ final class PasteService {
   }
 
   private let markerType = NSPasteboard.PasteboardType(AppIdentity.pasteboardMarkerType)
+  private let pasteboard: NSPasteboard
   private var isPasting = false
   private var didRequestAccessibilityPermission = false
 
+  init(pasteboard: NSPasteboard = .general) {
+    self.pasteboard = pasteboard
+  }
+
   func isAccessibilityTrusted() -> Bool {
     AXIsProcessTrusted()
+  }
+
+  func copy(text: String) throws {
+    guard !isPasting else { throw PasteError.pasteInProgress }
+    let snapshot = try capture(pasteboard)
+    pasteboard.clearContents()
+    guard pasteboard.setString(text, forType: .string) else {
+      throw restore(snapshot, to: pasteboard)
+        ? PasteError.clipboardWriteFailed : PasteError.clipboardRestoreFailed
+    }
   }
 
   private func requestAccessibilityPermissionIfNeeded() {
@@ -90,7 +105,7 @@ final class PasteService {
     }
     isPasting = true
 
-    let pasteboard = NSPasteboard.general
+    let pasteboard = self.pasteboard
     let snapshot: [ItemSnapshot]
     do {
       snapshot = try capture(pasteboard)

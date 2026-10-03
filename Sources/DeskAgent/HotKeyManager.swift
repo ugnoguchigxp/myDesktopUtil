@@ -154,5 +154,15 @@ final class HotKeyManager {
     "SPACE": kVK_Space, "RETURN": kVK_Return, "TAB": kVK_Tab,
     "ESCAPE": kVK_Escape, "LEFT": kVK_LeftArrow, "RIGHT": kVK_RightArrow,
     "UP": kVK_UpArrow, "DOWN": kVK_DownArrow,
+    "DELETE": kVK_Delete, "FORWARDDELETE": kVK_ForwardDelete,
+    "HOME": kVK_Home, "END": kVK_End, "PAGEUP": kVK_PageUp, "PAGEDOWN": kVK_PageDown,
+    "-": kVK_ANSI_Minus, "=": kVK_ANSI_Equal,
+    "[": kVK_ANSI_LeftBracket, "]": kVK_ANSI_RightBracket,
+    ";": kVK_ANSI_Semicolon, "'": kVK_ANSI_Quote, "\\": kVK_ANSI_Backslash,
+    ",": kVK_ANSI_Comma, ".": kVK_ANSI_Period, "/": kVK_ANSI_Slash, "`": kVK_ANSI_Grave,
   ]
+
+  static func keyName(for keyCode: UInt16) -> String? {
+    keyCodes.first { $0.value == Int(keyCode) }?.key
+  }
 }
